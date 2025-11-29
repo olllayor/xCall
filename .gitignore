@@ -1,6 +1,9 @@
 # dependencies (bun install)
 node_modules
-
+.wrangler/
+tail.log
+ui.md
+wrangler.toml
 # output
 out
 dist
