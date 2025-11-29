@@ -1,0 +1,31 @@
+name = "drift-video-chat"
+main = "src/worker.ts"
+compatibility_date = "2024-11-01"
+
+# Serve static files from /public
+[assets]
+directory = "./public"
+
+# Durable Objects for WebSocket state management
+[[durable_objects.bindings]]
+name = "SIGNALING"
+class_name = "SignalingServer"
+
+# Durable Object migrations - use new_sqlite_classes for free plan
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["SignalingServer"]
+
+# Development settings
+[dev]
+port = 8787
+local_protocol = "http"
+
+# Environment variables (optional)
+[vars]
+ENVIRONMENT = "production"
+
+# Custom domain (Cloudflare will manage DNS automatically)
+[[routes]]
+pattern = "xcall.ollayor.uz"
+custom_domain = true

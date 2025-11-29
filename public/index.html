@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>xCall - Video Chat</title>
+    <script defer src="https://cloud.umami.is/script.js"
+        data-website-id="18293c6b-5819-417f-b75b-dd0c5c99f1d5"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #09090b;
+            --bg-secondary: #0f0f12;
+            --bg-tertiary: #18181b;
+            --bg-elevated: #1f1f23;
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --text-muted: #52525b;
+            --accent: #10b981;
+            --accent-glow: rgba(16, 185, 129, 0.15);
+            --accent-hover: #059669;
+            --border: #27272a;
+            --border-subtle: #1f1f23;
+            --destructive: #ef4444;
+            --warning: #eab308;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 24px;
+            --shadow-glow: 0 0 60px rgba(16, 185, 129, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+            height: 100dvh;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            background: linear-gradient(to bottom, var(--bg-secondary), transparent);
+            position: relative;
+            z-index: 10;
+        }
+
+        .logo {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .logo-dot {
+            color: var(--accent);
+            font-size: 28px;
+            line-height: 1;
+        }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 18px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            transition: all 0.3s ease;
+        }
+
+        .status-indicator.ready {
+            background: var(--text-muted);
+        }
+
+        .status-indicator.searching {
+            background: var(--warning);
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .status-indicator.connected {
+            background: var(--accent);
+            box-shadow: 0 0 12px var(--accent);
+        }
+
+        .status-indicator.error {
+            background: var(--destructive);
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.6;
+                transform: scale(0.9);
+            }
+        }
+
+        .status-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .quality-badge {
+            display: none;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .quality-badge.visible {
+            display: flex;
+        }
+
+        .quality-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+        }
+
+        .quality-dot.medium {
+            background: var(--warning);
+        }
+
+        .quality-dot.low {
+            background: var(--destructive);
+        }
+
+        /* Main Video Area */
+        .main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            padding: 0 24px 24px;
+            min-height: 0;
+        }
+
+        .video-container {
+            position: relative;
+            background: var(--bg-secondary);
+            border-radius: var(--radius-xl);
+            border: 1px solid var(--border-subtle);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-container.local {
+            order: 1;
+        }
+
+        .video-container.remote {
+            order: 2;
+        }
+
+        .video-container video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+
+        .video-container video.active {
+            display: block;
+        }
+
+        /* Mirror local video */
+        .video-container.local video {
+            transform: scaleX(-1);
+        }
+
+        .video-container.remote video {
+            transform: scaleX(-1);
+        }
+
+        .video-label {
+            position: absolute;
+            bottom: 16px;
+            left: 16px;
+            padding: 8px 14px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .video-label.hidden {
+            display: none;
+        }
+
+        .video-label-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+        }
+
+        /* Placeholder / Empty State */
+        .video-placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .video-placeholder.hidden {
+            display: none;
+        }
+
+        .video-placeholder-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: var(--bg-tertiary);
+            border: 2px dashed var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-placeholder-icon svg {
+            width: 32px;
+            height: 32px;
+            color: var(--text-muted);
+        }
+
+        .video-placeholder-text {
+            font-size: 15px;
+            color: var(--text-muted);
+            max-width: 200px;
+            line-height: 1.5;
+        }
+
+        /* Searching Overlay */
+        .searching-overlay {
+            position: absolute;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-secondary);
+            gap: 20px;
+        }
+
+        .searching-overlay.active {
+            display: flex;
+        }
+
+        .spinner-ring {
+            width: 56px;
+            height: 56px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .searching-text {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .searching-timer {
+            font-size: 14px;
+            color: var(--text-muted);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Control Bar */
+        .control-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            padding: 20px 24px 28px;
+            background: linear-gradient(to top, var(--bg-primary) 60%, transparent);
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+        }
+
+        .control-btn {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: none;
+            background: transparent;
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .control-btn:hover {
+            background: var(--bg-elevated);
+        }
+
+        .control-btn.muted {
+            background: var(--destructive);
+        }
+
+        .control-btn.muted:hover {
+            background: #dc2626;
+        }
+
+        .control-btn svg {
+            width: 22px;
+            height: 22px;
+        }
+
+        .control-btn .icon-off {
+            display: none;
+        }
+
+        .control-btn.muted .icon-on {
+            display: none;
+        }
+
+        .control-btn.muted .icon-off {
+            display: block;
+        }
+
+        /* Fullscreen button specific styles */
+        .control-btn.fullscreen-active .icon-on {
+            display: none;
+        }
+
+        .control-btn.fullscreen-active .icon-off {
+            display: block;
+        }
+
+        .action-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 0 32px;
+            height: 56px;
+            border-radius: 100px;
+            border: none;
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .action-btn.primary {
+            background: var(--accent);
+            color: var(--bg-primary);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .action-btn.primary:hover:not(:disabled) {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 0 80px rgba(16, 185, 129, 0.2);
+        }
+
+        .action-btn.secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .action-btn.secondary:hover:not(:disabled) {
+            background: var(--bg-elevated);
+            border-color: var(--text-muted);
+        }
+
+        .action-btn.danger {
+            background: var(--destructive);
+            color: white;
+        }
+
+        .action-btn.danger:hover:not(:disabled) {
+            background: #dc2626;
+        }
+
+        .action-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Responsive - Tablet */
+        @media (max-width: 1024px) {
+            .main {
+                gap: 10px;
+                padding: 0 16px 16px;
+            }
+
+            .header {
+                padding: 12px 16px;
+            }
+
+            .action-btn {
+                padding: 0 24px;
+                height: 52px;
+            }
+        }
+
+        /* Responsive - Mobile */
+        @media (max-width: 768px) {
+            .main {
+                grid-template-columns: 1fr;
+                grid-template-rows: 1fr 1fr;
+            }
+
+            .video-container.local {
+                order: 2;
+            }
+
+            .video-container.remote {
+                order: 1;
+            }
+
+            .header-status {
+                position: absolute;
+                left: 50%;
+                transform: translateX(-50%);
+            }
+
+            .quality-badge {
+                display: none !important;
+            }
+
+            .control-bar {
+                padding: 16px 16px 24px;
+                gap: 8px;
+            }
+
+            .control-group {
+                padding: 4px;
+                gap: 4px;
+            }
+
+            .control-btn {
+                width: 44px;
+                height: 44px;
+            }
+
+            .action-btn {
+                padding: 0 20px;
+                height: 48px;
+                font-size: 14px;
+            }
+
+            .action-btn span {
+                display: none;
+            }
+
+            .action-btn svg {
+                width: 22px;
+                height: 22px;
+            }
+        }
+
+        /* Mobile Landscape */
+        @media (max-height: 500px) {
+            .main {
+                grid-template-columns: 1fr 1fr;
+                grid-template-rows: 1fr;
+            }
+
+            .header {
+                padding: 8px 16px;
+            }
+
+            .control-bar {
+                padding: 8px 16px 12px;
+            }
+
+            .control-btn {
+                width: 40px;
+                height: 40px;
+            }
+
+            .action-btn {
+                height: 44px;
+                padding: 0 20px;
+            }
+        }
+
+        /* Picture-in-Picture style for connected mobile */
+        @media (max-width: 768px) {
+            .pip-mode .video-container.local {
+                position: absolute;
+                width: 120px;
+                height: 160px;
+                bottom: 100px;
+                right: 16px;
+                border-radius: var(--radius-lg);
+                border: 2px solid var(--border);
+                z-index: 10;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+                cursor: pointer;
+                transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            .pip-mode .video-container.remote {
+                grid-row: 1 / 3;
+                transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            .pip-mode .video-container.local .video-label {
+                display: none;
+            }
+
+            /* Swapped state - local becomes big, remote becomes PIP */
+            .pip-mode.swapped .video-container.local {
+                position: relative;
+                width: 100%;
+                height: 100%;
+                bottom: auto;
+                right: auto;
+                border-radius: var(--radius-xl);
+                border: 1px solid var(--border-subtle);
+                z-index: 1;
+                box-shadow: none;
+                grid-row: 1 / 3;
+            }
+
+            .pip-mode.swapped .video-container.remote {
+                position: absolute;
+                width: 120px;
+                height: 160px;
+                bottom: 100px;
+                right: 16px;
+                border-radius: var(--radius-lg);
+                border: 2px solid var(--border);
+                z-index: 10;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+                cursor: pointer;
+                grid-row: auto;
+            }
+
+            .pip-mode.swapped .video-container.local .video-label {
+                display: flex;
+            }
+
+            .pip-mode.swapped .video-container.remote .video-label {
+                display: none;
+            }
+        }
+
+        /* Toast notification animation */
+        @keyframes fadeInOut {
+            0% {
+                opacity: 0;
+                transform: translateX(-50%) translateY(10px);
+            }
+
+            15% {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+
+            85% {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+
+            100% {
+                opacity: 0;
+                transform: translateX(-50%) translateY(-10px);
+            }
+        }
+
+        /* Disabled button style */
+        .control-btn.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="logo">xCall<span class="logo-dot">.</span></div>
+
+        <div class="header-status">
+            <div class="status-indicator" id="statusIndicator"></div>
+            <span class="status-label" id="statusText">Ready to connect</span>
+        </div>
+
+        <div class="header-right">
+            <div class="quality-badge" id="qualityBadge">
+                <div class="quality-dot" id="qualityDot"></div>
+                <span id="qualityText">HD</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Video Area -->
+    <main class="main" id="mainArea">
+        <!-- Local Video (You) -->
+        <div class="video-container local" id="localContainer">
+            <video id="localVideo" autoplay muted playsinline></video>
+            <div class="video-label" id="localLabel">
+                <div class="video-label-dot"></div>
+                You
+            </div>
+            <!-- Placeholder when no camera -->
+            <div class="video-placeholder" id="localPlaceholder">
+                <div class="video-placeholder-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                    </svg>
+                </div>
+                <p class="video-placeholder-text">Your camera will appear here</p>
+            </div>
+        </div>
+
+        <!-- Remote Video (Friend) -->
+        <div class="video-container remote" id="remoteContainer">
+            <video id="remoteVideo" autoplay playsinline></video>
+            <div class="video-label hidden" id="remoteLabel">
+                <div class="video-label-dot"></div>
+                Friend
+            </div>
+            <!-- Placeholder -->
+            <div class="video-placeholder" id="remotePlaceholder">
+                <div class="video-placeholder-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+                    </svg>
+                </div>
+                <p class="video-placeholder-text">Press Start to find someone</p>
+            </div>
+            <!-- Searching State -->
+            <div class="searching-overlay" id="searchingOverlay">
+                <div class="spinner-ring"></div>
+                <span class="searching-text">Finding someone...</span>
+                <span class="searching-timer" id="searchTimer">0:00</span>
+            </div>
+        </div>
+    </main>
+
+    <!-- Control Bar -->
+    <footer class="control-bar">
+        <!-- Media Controls -->
+        <div class="control-group">
+            <button class="control-btn" id="micBtn" title="Toggle microphone">
+                <svg class="icon-on" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                </svg>
+                <svg class="icon-off" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M17.25 9.75L19.5 12m0 0l2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+                </svg>
+            </button>
+            <button class="control-btn" id="videoToggleBtn" title="Toggle camera">
+                <svg class="icon-on" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+                <svg class="icon-off" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M12 18.75H4.5a2.25 2.25 0 01-2.25-2.25V9m12.841 9.091L16.5 19.5m-1.409-1.409c.407-.407.659-.97.659-1.591v-9a2.25 2.25 0 00-2.25-2.25h-9c-.621 0-1.184.252-1.591.659m12.182 12.182L2.909 5.909M1.5 4.5l1.409 1.409" />
+                </svg>
+            </button>
+            <button class="control-btn" id="fullscreenBtn" title="Toggle fullscreen">
+                <svg class="icon-on" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+                </svg>
+                <svg class="icon-off" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5M15 15l5.25 5.25" />
+                </svg>
+            </button>
+        </div>
+
+        <!-- Action Buttons -->
+        <button class="action-btn primary" id="startBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+            </svg>
+            <span>Start</span>
+        </button>
+
+        <button class="action-btn secondary hidden" id="skipBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M3 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 010 1.954l-7.108 4.061A1.125 1.125 0 013 16.811V8.69zM12.75 8.689c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 010 1.954l-7.108 4.061a1.125 1.125 0 01-1.683-.977V8.69z" />
+            </svg>
+            <span>Next</span>
+        </button>
+
+        <button class="action-btn danger hidden" id="stopBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
+            </svg>
+            <span>Stop</span>
+        </button>
+    </footer>
+
+    <script src="main.js"></script>
+</body>
+
+</html>
