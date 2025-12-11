@@ -27,9 +27,42 @@
  * ICE Servers - Help browsers find each other across the internet
  *
  * STUN servers: Free, help discover your public IP
- * TURN servers: Relay traffic when direct connection fails (add later)
+ * TURN servers: Relay traffic when direct connection fails (required for symmetric NAT)
+ *
+ * Using Open Relay Project (free 20GB/month) + Google STUN servers
  */
-const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+const ICE_SERVERS = [
+	// STUN servers (free, for NAT traversal)
+	{ urls: 'stun:stun.l.google.com:19302' },
+	{ urls: 'stun:stun1.l.google.com:19302' },
+	{ urls: 'stun:stun2.l.google.com:19302' },
+	{ urls: 'stun:stun3.l.google.com:19302' },
+	{ urls: 'stun:stun4.l.google.com:19302' },
+
+	// TURN servers (relay for when direct connection fails)
+	// Open Relay Project - free, production-ready TURN server
+	{
+		urls: 'turn:openrelay.metered.ca:80',
+		username: 'openrelayproject',
+		credential: 'openrelayproject',
+	},
+	{
+		urls: 'turn:openrelay.metered.ca:443',
+		username: 'openrelayproject',
+		credential: 'openrelayproject',
+	},
+	{
+		urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+		username: 'openrelayproject',
+		credential: 'openrelayproject',
+	},
+	// TURNS (TLS) for strict firewalls
+	{
+		urls: 'turns:openrelay.metered.ca:443',
+		username: 'openrelayproject',
+		credential: 'openrelayproject',
+	},
+];
 
 /**
  * Media Constraints - Camera/mic settings
@@ -108,6 +141,9 @@ const remoteLabel = document.getElementById('remoteLabel');
 // Status
 const statusIndicator = document.getElementById('statusIndicator');
 const statusText = document.getElementById('statusText');
+
+// Online counter
+const onlineCount = document.getElementById('onlineCount');
 
 // Quality badge
 const qualityBadge = document.getElementById('qualityBadge');
@@ -303,6 +339,13 @@ async function getLocalMedia() {
 		// Show our own video (muted so we don't hear ourselves)
 		localVideo.srcObject = localStream;
 
+		// Explicitly call play() for Safari and older browsers
+		try {
+			await localVideo.play();
+		} catch (playErr) {
+			console.log('[Media] Auto-play handled by browser:', playErr.message);
+		}
+
 		console.log('[Media] Got local stream');
 		return true;
 	} catch (err) {
@@ -327,6 +370,11 @@ function stopLocalMedia() {
 // WEBSOCKET - Connection to Signaling Server
 // =============================================================================
 
+let wsReconnectAttempts = 0;
+let wsIntentionalClose = false; // Flag to prevent reconnection after user clicks Stop
+const WS_MAX_RECONNECT_ATTEMPTS = 5;
+const WS_RECONNECT_BASE_DELAY = 1000; // 1 second
+
 /**
  * Connect to the signaling server via WebSocket
  */
@@ -336,12 +384,20 @@ function connectWebSocket() {
 	const wsUrl = `${protocol}//${window.location.host}/ws`;
 
 	console.log('[WebSocket] Connecting to', wsUrl);
-	ws = new WebSocket(wsUrl);
+
+	try {
+		ws = new WebSocket(wsUrl);
+	} catch (err) {
+		console.error('[WebSocket] Failed to create connection:', err);
+		handleWsReconnect();
+		return;
+	}
 
 	// ----- WebSocket Event Handlers -----
 
 	ws.onopen = () => {
 		console.log('[WebSocket] Connected');
+		wsReconnectAttempts = 0; // Reset on successful connection
 		setStatus('Connected to server. Finding a partner...', 'waiting');
 
 		// Immediately request to join the queue
@@ -353,16 +409,56 @@ function connectWebSocket() {
 		handleServerMessage(message);
 	};
 
-	ws.onclose = () => {
-		console.log('[WebSocket] Disconnected');
-		cleanup();
-		setStatus('Disconnected from server', 'disconnected');
-		updateUI('idle');
+	ws.onclose = (event) => {
+		console.log(
+			'[WebSocket] Disconnected, code:',
+			event.code,
+			'reason:',
+			event.reason,
+			'intentional:',
+			wsIntentionalClose,
+		);
+
+		// If we were intentionally disconnected (user clicked stop), don't reconnect
+		if (wsIntentionalClose || event.code === 1000 || event.wasClean) {
+			wsIntentionalClose = false; // Reset flag
+			setStatus('Disconnected from server', 'disconnected');
+			updateUI('idle');
+			return;
+		}
+
+		// Otherwise, try to reconnect
+		handleWsReconnect();
 	};
 
 	ws.onerror = (err) => {
 		console.error('[WebSocket] Error:', err);
+		// onerror is always followed by onclose, so reconnect will be handled there
 	};
+}
+
+/**
+ * Handle WebSocket reconnection with exponential backoff
+ */
+function handleWsReconnect() {
+	if (wsReconnectAttempts >= WS_MAX_RECONNECT_ATTEMPTS) {
+		console.error('[WebSocket] Max reconnect attempts reached');
+		setStatus('Connection failed. Please refresh the page.', 'disconnected');
+		updateUI('idle');
+		return;
+	}
+
+	wsReconnectAttempts++;
+	const delay = WS_RECONNECT_BASE_DELAY * Math.pow(2, wsReconnectAttempts - 1); // Exponential backoff
+	console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${wsReconnectAttempts}/${WS_MAX_RECONNECT_ATTEMPTS})`);
+
+	setStatus(`Connection lost. Reconnecting in ${Math.round(delay / 1000)}s...`, 'waiting');
+
+	setTimeout(() => {
+		if (!ws || ws.readyState === WebSocket.CLOSED) {
+			connectWebSocket();
+		}
+	}, delay);
 }
 
 /**
@@ -467,6 +563,12 @@ function createPeerConnection() {
 	peerConnection.ontrack = (event) => {
 		console.log('[WebRTC] Received remote track');
 		remoteVideo.srcObject = event.streams[0];
+
+		// Explicitly call play() for Safari and older browsers
+		remoteVideo.play().catch((err) => {
+			console.log('[WebRTC] Remote video auto-play handled by browser:', err.message);
+		});
+
 		updateUI('connected');
 
 		// Start monitoring connection quality after connected
@@ -504,10 +606,53 @@ function createPeerConnection() {
 		}
 	};
 
-	// Log ICE connection state for debugging
+	// Log ICE connection state and handle failures
 	peerConnection.oniceconnectionstatechange = () => {
-		console.log('[WebRTC] ICE state:', peerConnection.iceConnectionState);
+		const state = peerConnection.iceConnectionState;
+		console.log('[WebRTC] ICE state:', state);
+
+		if (state === 'failed') {
+			console.log('[WebRTC] ICE failed, attempting restart...');
+			attemptIceRestart();
+		} else if (state === 'disconnected') {
+			// Give it a moment to recover before attempting restart
+			setTimeout(() => {
+				if (peerConnection && peerConnection.iceConnectionState === 'disconnected') {
+					console.log('[WebRTC] ICE still disconnected, attempting restart...');
+					attemptIceRestart();
+				}
+			}, 3000);
+		}
 	};
+}
+
+/**
+ * Attempt to restart ICE when connection fails
+ * This can help recover from temporary network issues
+ */
+async function attemptIceRestart() {
+	if (!peerConnection || !ws || ws.readyState !== WebSocket.OPEN) {
+		console.log('[WebRTC] Cannot restart ICE - no connection');
+		return;
+	}
+
+	try {
+		// Create a new offer with ICE restart flag
+		const offer = await peerConnection.createOffer({ iceRestart: true });
+		await peerConnection.setLocalDescription(offer);
+
+		// Send the new offer to the peer
+		sendMessage({
+			type: 'offer',
+			sdp: offer.sdp,
+		});
+
+		console.log('[WebRTC] ICE restart offer sent');
+	} catch (err) {
+		console.error('[WebRTC] ICE restart failed:', err);
+		// If ICE restart fails, the connection is likely unrecoverable
+		setStatus('Connection failed. Click Skip to find a new partner.', 'disconnected');
+	}
 }
 
 // =============================================================================
@@ -776,7 +921,8 @@ function cleanup() {
 	closePeerConnection();
 
 	if (ws) {
-		ws.close();
+		wsIntentionalClose = true; // Prevent auto-reconnect
+		ws.close(1000, 'User disconnected'); // Close with normal closure code
 		ws = null;
 	}
 }
@@ -789,6 +935,10 @@ function cleanup() {
  * "Start" button clicked - Begin chatting
  */
 startBtn.onclick = async () => {
+	// Reset reconnection state for fresh start
+	wsReconnectAttempts = 0;
+	wsIntentionalClose = false;
+
 	// Step 1: Get camera access
 	const hasMedia = await getLocalMedia();
 	if (!hasMedia) return;
@@ -987,6 +1137,13 @@ async function autoShowCameraPreview() {
 			localStream = await navigator.mediaDevices.getUserMedia(MEDIA_CONSTRAINTS);
 			localVideo.srcObject = localStream;
 
+			// Explicitly call play() for Safari and older browsers
+			try {
+				await localVideo.play();
+			} catch (playErr) {
+				console.log('[Auto Preview] Auto-play handled by browser:', playErr.message);
+			}
+
 			// Show local video
 			localVideo.classList.add('active');
 			localPlaceholder.classList.add('hidden');
@@ -1004,3 +1161,66 @@ async function autoShowCameraPreview() {
 
 // Try to show camera preview on load
 autoShowCameraPreview();
+
+// =============================================================================
+// ONLINE USERS COUNTER
+// =============================================================================
+
+let onlineCounterInterval = null;
+
+/**
+ * Fetch and update online users count from the server
+ */
+async function updateOnlineCount() {
+	try {
+		const response = await fetch('/stats');
+		if (!response.ok) throw new Error('Failed to fetch stats');
+
+		const stats = await response.json();
+		const count = stats.activePeers || stats.peers || 0;
+
+		// Animate the count change
+		if (onlineCount) {
+			onlineCount.textContent = count;
+		}
+	} catch (err) {
+		console.log('[Online] Failed to fetch online count:', err.message);
+		// Keep showing last known value or dash
+		if (onlineCount && onlineCount.textContent === '-') {
+			onlineCount.textContent = '-';
+		}
+	}
+}
+
+/**
+ * Start polling for online users count
+ */
+function startOnlineCounter() {
+	// Fetch immediately
+	updateOnlineCount();
+
+	// Then poll every 10 seconds
+	onlineCounterInterval = setInterval(updateOnlineCount, 10000);
+}
+
+/**
+ * Stop polling (e.g., when tab is hidden to save resources)
+ */
+function stopOnlineCounter() {
+	if (onlineCounterInterval) {
+		clearInterval(onlineCounterInterval);
+		onlineCounterInterval = null;
+	}
+}
+
+// Start the online counter when page loads
+startOnlineCounter();
+
+// Pause when tab is hidden, resume when visible
+document.addEventListener('visibilitychange', () => {
+	if (document.hidden) {
+		stopOnlineCounter();
+	} else {
+		startOnlineCounter();
+	}
+});

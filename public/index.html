@@ -5,6 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>xCall - Video Chat</title>
+    <!-- WebRTC adapter for cross-browser compatibility -->
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
     <script defer src="https://cloud.umami.is/script.js"
         data-website-id="18293c6b-5819-417f-b75b-dd0c5c99f1d5"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -172,6 +174,57 @@
 
         .quality-dot.low {
             background: var(--destructive);
+        }
+
+        /* Online Users Counter */
+        .online-counter {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+        }
+
+        .online-counter:hover {
+            border-color: var(--accent);
+            background: var(--accent-glow);
+        }
+
+        .online-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 8px var(--accent);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .online-count {
+            font-weight: 600;
+            color: var(--text-primary);
+            min-width: 20px;
+        }
+
+        .online-label {
+            color: var(--text-secondary);
+        }
+
+        /* Hide label on small screens */
+        @media (max-width: 480px) {
+            .online-label {
+                display: none;
+            }
+
+            .online-counter {
+                padding: 8px 12px;
+                gap: 6px;
+            }
         }
 
         /* Main Video Area */
@@ -671,6 +724,11 @@
         </div>
 
         <div class="header-right">
+            <div class="online-counter" id="onlineCounter">
+                <div class="online-dot"></div>
+                <span class="online-count" id="onlineCount">-</span>
+                <span class="online-label">online</span>
+            </div>
             <div class="quality-badge" id="qualityBadge">
                 <div class="quality-dot" id="qualityDot"></div>
                 <span id="qualityText">HD</span>

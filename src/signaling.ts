@@ -1,17 +1,3 @@
-/**
- * SignalingServer - Cloudflare Durable Object for WebRTC Signaling
- *
- * This Durable Object handles:
- * - WebSocket connections from clients
- * - Matchmaking queue (pairing users together)
- * - Room management (forwarding WebRTC signaling between peers)
- *
- * Why Durable Objects?
- * - Persistent WebSocket connections (unlike serverless functions)
- * - Shared state across all connections (queue, rooms)
- * - Single instance handles all signaling globally
- */
-
 interface Peer {
 	id: string;
 	ws: WebSocket;
@@ -23,15 +9,12 @@ interface Room {
 	peer1: string;
 	peer2: string;
 }
-
-// Message types from client
 interface ClientMessage {
 	type: 'join' | 'leave' | 'offer' | 'answer' | 'ice';
 	sdp?: { type: string; sdp: string };
 	candidate?: { candidate: string; sdpMid: string | null; sdpMLineIndex: number | null };
 }
 
-// Message types to client
 interface ServerMessage {
 	type: 'queued' | 'matched' | 'offer' | 'answer' | 'ice' | 'peer-left' | 'error';
 	role?: 'offerer' | 'answerer';
@@ -43,7 +26,6 @@ interface ServerMessage {
 export class SignalingServer implements DurableObject {
 	private ctx: DurableObjectState;
 
-	// In-memory state (persists as long as DO is alive)
 	private peers: Map<string, Peer> = new Map();
 	private rooms: Map<string, Room> = new Map();
 	private queue: string[] = [];
@@ -52,25 +34,19 @@ export class SignalingServer implements DurableObject {
 		this.ctx = ctx;
 	}
 
-	/**
-	 * Handle incoming HTTP requests (WebSocket upgrades)
-	 */
 	async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 
-		// WebSocket upgrade for /ws endpoint
 		if (url.pathname === '/ws') {
 			const upgradeHeader = request.headers.get('Upgrade');
 			if (upgradeHeader !== 'websocket') {
 				return new Response('Expected WebSocket', { status: 426 });
 			}
 
-			// Create WebSocket pair
 			const pair = new WebSocketPair();
 			const client = pair[0];
 			const server = pair[1];
 
-			// Accept the WebSocket and handle it
 			this.handleWebSocket(server);
 
 			return new Response(null, {
@@ -79,34 +55,39 @@ export class SignalingServer implements DurableObject {
 			});
 		}
 
-		// Stats endpoint for debugging
 		if (url.pathname === '/stats') {
-			return new Response(
-				JSON.stringify({
-					peers: this.peers.size,
-					rooms: this.rooms.size,
-					queue: this.queue.length,
-				}),
-				{
-					headers: { 'Content-Type': 'application/json' },
-				},
-			);
+			const stats = {
+				peers: this.peers.size,
+				rooms: this.rooms.size,
+				queue: this.queue.length,
+				activePeers: Array.from(this.peers.values()).filter((p) => p.ws.readyState === WebSocket.OPEN).length,
+				orphanedInQueue: this.queue.filter(
+					(id) => !this.peers.has(id) || this.peers.get(id)?.ws.readyState !== WebSocket.OPEN,
+				).length,
+			};
+
+			// Clean up orphaned queue entries
+			if (stats.orphanedInQueue > 0) {
+				this.queue = this.queue.filter((id) => {
+					const peer = this.peers.get(id);
+					return peer && peer.ws.readyState === WebSocket.OPEN;
+				});
+				console.log(`[Cleanup] Removed ${stats.orphanedInQueue} orphaned queue entries`);
+			}
+
+			return new Response(JSON.stringify(stats), {
+				headers: { 'Content-Type': 'application/json' },
+			});
 		}
 
 		return new Response('Not Found', { status: 404 });
 	}
 
-	/**
-	 * Handle a WebSocket connection
-	 */
 	private handleWebSocket(ws: WebSocket): void {
-		// Accept the connection
 		ws.accept();
 
-		// Generate unique peer ID
 		const peerId = crypto.randomUUID();
 
-		// Create peer object
 		const peer: Peer = {
 			id: peerId,
 			ws,
@@ -116,7 +97,6 @@ export class SignalingServer implements DurableObject {
 		this.peers.set(peerId, peer);
 		console.log(`[WS] Peer connected: ${peerId}`);
 
-		// Handle messages
 		ws.addEventListener('message', (event) => {
 			try {
 				const message: ClientMessage = JSON.parse(event.data as string);
@@ -127,7 +107,6 @@ export class SignalingServer implements DurableObject {
 			}
 		});
 
-		// Handle disconnect
 		ws.addEventListener('close', () => {
 			console.log(`[WS] Peer disconnected: ${peerId}`);
 			this.handleLeave(peerId);
@@ -139,9 +118,6 @@ export class SignalingServer implements DurableObject {
 		});
 	}
 
-	/**
-	 * Handle incoming messages from a peer
-	 */
 	private handleMessage(peerId: string, message: ClientMessage): void {
 		console.log(`[Message] ${peerId}: ${message.type}`);
 
@@ -165,9 +141,6 @@ export class SignalingServer implements DurableObject {
 		}
 	}
 
-	/**
-	 * Handle join request - add to queue or match with waiting peer
-	 */
 	private handleJoin(peerId: string): void {
 		const peer = this.peers.get(peerId);
 		if (!peer) return;
@@ -177,7 +150,6 @@ export class SignalingServer implements DurableObject {
 			this.handleLeave(peerId);
 		}
 
-		// Remove from queue if already there
 		this.queue = this.queue.filter((id) => id !== peerId);
 
 		// Try to match with someone in queue
@@ -201,10 +173,14 @@ export class SignalingServer implements DurableObject {
 				console.log(`[Match] Room ${roomId}: ${partnerId} <-> ${peerId}`);
 
 				// Notify both peers
-				this.sendToPeer(partnerId, { type: 'matched', role: 'offerer' });
-				this.sendToPeer(peerId, { type: 'matched', role: 'answerer' });
+				this.sendToPeer(partnerId, { type: 'matched', role: 'answerer' });
+				this.sendToPeer(peerId, { type: 'matched', role: 'offerer' });
 			} else {
 				// Partner disconnected, try again
+				if (partner) {
+					console.log(`[Cleanup] Removing dead peer ${partnerId} from queue`);
+					this.peers.delete(partnerId);
+				}
 				this.handleJoin(peerId);
 			}
 		} else {
